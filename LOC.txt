@@ -1,0 +1,81 @@
+# what are the most common LLOC (logical lines of code) for files?
+project: Project = input;
+
+LLOC: output sum[string]  of int;
+cf: ChangedFile;
+lloc := 0;
+#checks if project is Java project and has no Android content
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+
+visit(input, visitor 
+{
+    before node: Project ->
+    {
+        if(!(match("KKPS/exceedvote", project.name)))
+                stop;  
+    }
+	before node: CodeRepository -> {
+		
+		#if(!IsRelevantProject(node))
+		#    stop;
+		snapshot := getsnapshot(node, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	before node: ChangedFile ->
+	{
+	    cf = node;
+	}
+	before node: ASTRoot ->
+	{
+	    #lloc = lloc + len(node.imports) +1;
+	    #lloc = lloc + len(node.namespaces) + 1;
+	    LLOC[cf.name] << len(node.imports) +1 + len(node.namespaces) + 1;
+	}
+	before node: Declaration ->
+	{
+	    if(node.kind == TypeKind.CLASS)
+	    {
+	        #lloc = lloc + 2; #class line + one space 
+	        #lloc = lloc + len(node.fields) + 1; #field length + one space
+	        LLOC[cf.name] << 2 + 2 * len(node.fields) + 1;
+	    }
+	}
+	before node: Method ->
+	{
+	    #lloc = lloc + 2; #method line + one space 
+	    LLOC[cf.name] << 2;
+	}
+	before node: Modifier ->
+    {
+	    if(node.kind == ModifierKind.ANNOTATION)
+	        LLOC[cf.name] << 1; 
+	}
+	before node: Statement ->
+	{
+	    if(node.kind == StatementKind.BLOCK)
+	    {
+	         #lloc = lloc + 1; # for every cllosed bracked;   
+	         LLOC[cf.name] << 1;
+	    }else
+	    {
+	        #lloc = lloc + 1;
+	        LLOC[cf.name] << 1;
+	    }
+	}
+});

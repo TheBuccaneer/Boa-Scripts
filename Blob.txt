@@ -1,0 +1,285 @@
+project: Project = input;
+
+isBlob: output sum[string][string][string][string][string] of int; #output for statistics
+OneOrTwo : bool; #collect Expressions for method one or two to compare
+classFile : Declaration; #actual class in progress
+snapshot: array of ChangedFile; #saves to current snapchat of project
+methodN := ""; #method in use. Not used!
+path := ""; #current file name + path. Not used!
+
+
+NAD_NMD_METRIC_NUMBER := 60; #used treshold for blob detection
+PERCENTAGE_RATE := 25.0; # uced treshold for dataclass detection
+LCOM_TRESH := 20; # LCOM higher than value = possible blob
+ISBLOB_NAME_RELEVANT := false;
+
+dataClassCandidate: map[string] of string; #classes which are detected as data classes
+methodI: map[string] of string; #expressions of first method to compare
+methodJ: map[string] of string; #expressions of second method to compare
+
+
+#has class on of the predefined names?
+HasBlobName := function(node: Declaration) : bool
+{
+    if(ISBLOB_NAME_RELEVANT)
+    {
+        names := {"Process","Control", "Command", "Manage", "Drive", "System"};
+    
+    exists(i: int; match("^" +names[i] + "$", node.name))
+        return true;
+    return false;
+    }
+    
+    return ISBLOB_NAME_RELEVANT;
+};
+
+#Collects expressions for methods to compre
+CollectExpressions := function(methodTemp: map[string] of string, node: Expression)
+{
+     exists(i:int ; match(classFile.fields[i].name, node.variable))
+	       methodTemp[node.variable] = "";
+};
+
+#visitor used for collection expressions
+myvisitor := visitor
+{
+    before node: Method -> methodN = node.name;
+	before node: Expression ->
+	{
+	    if(OneOrTwo)
+            CollectExpressions(methodI, node);
+        else
+	        CollectExpressions(methodJ, node);
+	}
+};
+
+#is current method a getter or setter method?
+IsSetOrGet := function (nameOfMethod: string): bool
+{
+    return match(`^set`, nameOfMethod) || match(`^get`, nameOfMethod);
+};
+
+IsConstructor := function (nameOfMethod : string): bool
+{
+    return match("<init>", nameOfMethod);
+};
+
+#this visitor visits class and checks if percentage of getter and setter is over 
+#PERCENTAGE_RATE and adds class as dataclass to dataclassCandidate map.
+dataClassVisitor := visitor
+{
+    before node: Declaration ->
+    {
+        if (node.kind == TypeKind.CLASS && node.name != classFile.name) 
+		{
+		    numberOfMethods1 := 0.0;
+		    getOrSet := 0.0;
+		    foreach(i:int; node.fields[i])
+		    {
+		        tempField := node.fields[i];
+		        foreach(j:int; tempField.modifiers[j])
+		        {
+		            if(tempField.modifiers[j].visibility == Visibility.PUBLIC
+		                || tempField.modifiers[j].visibility == Visibility.NAMESPACE)
+		                {
+		                numberOfMethods1 = numberOfMethods1 + 1;
+		                getOrSet = getOrSet + 1;    
+		                }
+		        }
+		    }
+		    foreach(i:int; node.methods[i])
+		    {
+		        if(IsConstructor(node.methods[i].name))
+		            continue;
+		          
+		        numberOfMethods1 = numberOfMethods1 + 1;
+		        if(IsSetOrGet(node.methods[i].name))
+		            getOrSet = getOrSet + 1;
+		    }
+		    percentage := (getOrSet * 100) / numberOfMethods1; 
+		    
+		    if(percentage >= PERCENTAGE_RATE)
+		  {
+		        dataClassCandidate[node.name] = "";
+		  }
+		}
+		stop;
+    }
+};
+
+#checks if project is Java project and has no Android content
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+#NAD + NMD 
+NumberOfMethodsAndAttributes := function(node: Declaration): int
+{
+    number := len(node.fields);
+    foreach (i: int; node.methods[i])
+    {
+        methodName := lowercase(node.methods[i].name);
+        if(!(IsSetOrGet(methodName) || IsConstructor(methodName)))
+            number++;
+    }
+    return number;
+};
+
+#cheks if two Expression sets are disjunct or not 
+IsDisjunct := function (A: array of string, B: array of string) : bool
+{
+    lenA := len(A);
+    lenB := len(B);
+    
+    for(i := 0; i < lenA; i++)
+    {
+        for(j := i; j < lenB; j++)
+        {
+            if(A[i] == B[j])
+                return false;
+        }
+    }
+    return true;
+};
+
+#LCOM
+LCOM := function(node: Declaration) : int
+{
+    fieldLength := len(node.fields);
+    methodField := node.methods;
+    methodFieldLength := 0;
+    
+    foreach(i: int; node.methods[i])
+        if(!IsConstructor(node.methods[i].name) && !IsSetOrGet(node.methods[i].name))
+	        methodFieldLength++;
+	
+	
+		    if(methodFieldLength > 1 && fieldLength > 1)
+		    {
+		        nonDis := 0;
+                dis := 0;
+                
+		        for(i := 0; i < methodFieldLength; i++)
+		        {
+
+		            if(IsConstructor(methodField[i].name) || IsSetOrGet(methodField[i].name))
+		                    continue;
+		                    
+		            OneOrTwo = true;
+		            clear(methodI);
+		            visit(methodField[i], myvisitor); 
+    
+		            for(j := i; j < methodFieldLength ; j++)
+		            {
+		                if(IsConstructor(methodField[j].name) || methodField[i] == methodField[j] 
+		                    || IsSetOrGet(methodField[j].name))
+		                    continue;
+
+		                OneOrTwo = false;
+		                clear(methodJ);
+		                visit(methodField[j], myvisitor);  
+		                    
+		                if(IsDisjunct(keys(methodI), keys(methodJ)))
+		                    nonDis++;
+		                else
+		                    dis++;
+		            }
+		        }
+		        if(nonDis > dis)
+		            nonDis = nonDis - dis;
+		        else
+		            nonDis = 0;
+	            return nonDis;
+		    } 
+		    return 0;
+};
+
+#Cheks the percentage rate fields, which have dataclass types of blob supposed class.
+PercentageOfDataClasses := function(node: Declaration) : float
+{
+    lenField : float;
+    lenField = 0;
+    if(len(node.fields) > 0)
+    {
+        clear(dataClassCandidate);
+        foreach(i:int ; def(snapshot[i]))
+	            visit(snapshot[i], dataClassVisitor);  
+	            
+	    numberOfDataClasses := 0;
+	    dcf := keys(dataClassCandidate);
+	     
+	    foreach(j: int; dcf[j])
+	    {
+	        
+	        exists(i: int; match(dcf[j], node.fields[i].variable_type.name))
+	        {
+	            numberOfDataClasses++;
+	           
+	        }
+	    }
+	    
+	    lenField = (numberOfDataClasses * 100) /  len(node.fields);
+
+    }
+	 return lenField;
+};
+
+
+#Is there a blob?
+CheckForBlob := function(node: Declaration)
+{
+    number := NumberOfMethodsAndAttributes(node);
+    if(!(number >= NAD_NMD_METRIC_NUMBER))
+        return;
+    lcom :=LCOM(node);
+    if(!(lcom > LCOM_TRESH))
+        return;
+    podc := PercentageOfDataClasses(node);
+    if(!(PercentageOfDataClasses(node) >= PERCENTAGE_RATE) )
+        return;
+
+        isBlob[project.name + path][string(number)][string(lcom)][string(podc)]
+        [string(HasBlobName(node))] << 1;
+
+		        
+};
+
+#main visitor
+visit(project, visitor 
+{
+    before node: Project ->
+    {
+        #if(!(match("KKPS/exceedvote", project.name)))
+        #        stop;  
+    }
+    before node: CodeRepository -> 
+	{
+        snapshot = getsnapshot(node, "SOURCE_JAVA_JLS");
+        if(!IsRelevantProject(node))
+            stop;
+	    foreach(i:int ; def(snapshot[i]))
+	            visit(snapshot[i]);    
+        stop;
+	}
+	before node: ChangedFile -> path = node.name;
+	before node: Declaration ->
+	{
+		if (node.kind == TypeKind.CLASS) 
+		{
+		    classFile = node;
+		    CheckForBlob(node);
+		}
+	stop;
+	}
+});

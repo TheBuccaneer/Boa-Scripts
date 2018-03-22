@@ -1,0 +1,67 @@
+#swiss army
+project: Project = input;
+
+SwissArmy: output sum[string] of int;
+cf: ChangedFile;
+INTERFACES_ALLOWED := 5;
+
+
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+CheckForSwissArmyKnife := function (node: Declaration)
+{
+     if(node.kind == TypeKind.CLASS)
+            {
+                used := 0;
+                foreach (i: int; node.parents[i]) 
+                {
+                    t: Type = node.parents[i];
+                    if (t.kind == TypeKind.INTERFACE)
+                        used++;
+                }
+                if(used > INTERFACES_ALLOWED)
+                    SwissArmy["h"] << 1;
+            }
+
+};
+
+
+visit(input, visitor 
+{
+    before node: Project ->
+    {
+        #if(!(match("KKPS/exceedvote", project.name)))
+        #        stop;  
+    }
+	before node: CodeRepository -> {
+		
+		if(!IsRelevantProject(node))
+		    stop;
+		snapshot := getsnapshot(node, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	before node: ChangedFile ->
+	{
+	    cf = node;
+	}
+	before d: Declaration -> {
+        CheckForSwissArmyKnife(d);   
+        stop;
+    }
+
+});

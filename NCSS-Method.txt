@@ -1,0 +1,30 @@
+# NCSS
+project: Project = input;
+NCSS: output sum[string][string] of int;
+className := "";
+
+#calculate fore every method nccs metric
+ncss := function(node: Method){
+
+    methodName := node.name;
+    NCSS[className][methodName] << 1; 
+    visit(node, visitor {
+        before node: Statement -> 
+        {
+            if(node.kind != StatementKind.BLOCK)
+                NCSS[className][methodName] << 1; 
+        }
+    });
+};
+
+visit(input, visitor {
+	before node: CodeRepository -> {
+		# only look at the latest snapshot
+		snapshot := getsnapshot(node, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	before node: ChangedFile -> className = node.name;
+	before node: Method -> ncss(node);
+});

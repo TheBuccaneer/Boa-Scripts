@@ -1,0 +1,67 @@
+#Parameter list
+project: Project = input;
+
+ALLOWED_NUMBER_OF_PARAMETERS := 5; #how many parameters are allowed?
+methodPerClass: output mean of int; #methods per class
+argsPerMethodPerClass: output mean of int; #arguments per methods per clas
+largeArgsMethodPerClass: output mean of int; #large methods per class
+largeArgsMethidPerClassWithourEmptyLists: output mean of int;
+#checks if project is Java project and has no Android content
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+visit(input, visitor 
+{
+	before node: CodeRepository -> 
+	{
+		
+		if(!IsRelevantProject(node))
+		    stop;
+		snapshot := getsnapshot(node, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+		    visit(snapshot[i]);
+		stop;
+	} 
+	before node: Declaration ->
+	{
+	    if(node.kind == TypeKind.CLASS)
+	    {
+	        #how many methods/constructors per class are there?
+	        methodPerClass << len(node.methods); 
+	        # how many method/constructors per class with arguments are there?
+	        numberOfMethodsWithArguments := len(node.methods); 
+	        #count number of methods with more then ALLOWED_NUMBER_OF_PARAMETERS value (5)
+	        counter := 0;
+	        foreach(i: int; node.methods[i])
+	        {
+	            #length of arg list of actual method 
+	            argumentListLength := len(node.methods[i].arguments);
+	            #mean arg list per method per class
+	            argsPerMethodPerClass << argumentListLength;
+	            #if method has no arguments, than don't count for largeArgsMethidPerClassWithourEmptyLists
+	            if(argumentListLength == 0)
+	                numberOfMethodsWithArguments--;
+	            #if method has more than ALLOWED_NUMBER_OF_PARAMETERS value (5) than increment    
+	            if(argumentListLength >= ALLOWED_NUMBER_OF_PARAMETERS)
+	                counter++;
+	        }
+	        #mean of large methods per class with all methods/constructors
+	        largeArgsMethodPerClass << counter;
+	        #mean of lrage methods per class with only method/constructors without empty arg list
+	        largeArgsMethidPerClassWithourEmptyLists << numberOfMethodsWithArguments;
+	    }
+	    stop;
+	}
+});

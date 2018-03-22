@@ -1,0 +1,133 @@
+#Spaghetti
+project: Project = input;
+
+SPAG: output sum[string][string][string][string]  of int;
+MIN_LINES_OF_CODE := 75; #min length of method
+MIN_NUMBER_OF_PARAMETERS := 0; #how many parameters are allowed?
+classFile: Declaration; #aktuelle Klasse
+hasParents := false; #has Super-Class?
+
+#is current method a getter or setter method?
+IsSetOrGet := function (nameOfMethod: string): bool
+{
+    return match(`^set`, nameOfMethod) || match(`^get`, nameOfMethod);
+};
+
+IsConstructor := function (nameOfMethod : string): bool
+{
+    return match("<init>", nameOfMethod);
+};
+
+#checks if project is Java project and has no Android content
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+#ncss logic
+lloc := function(node: Method) : int {
+    count := 0;
+
+    visit(node, visitor {
+        before node: Statement ->
+                count = count + 1;
+    });
+
+    return count;
+};
+
+
+HasParameters := function(node: Method) : bool
+{
+    return len(node.arguments) <= MIN_NUMBER_OF_PARAMETERS;
+};
+
+#is method using fields of its actual class? If not return -1
+UsesFields := function(node: Method) : float
+{
+    fieldLen := 0.0;
+    fieldLen = len(classFile.fields);
+    exps : map[string] of string;
+    
+    if(fieldLen > 0)
+    {
+        used := 0.0;
+        visit(node, visitor {
+            before node: Expression ->
+            {
+                exps[node.variable] = "";
+            }
+        });
+        a:= keys(exps);
+            
+        foreach(i:int ; classFile.fields[i])
+            foreach(j: int; a[j])
+                if(classFile.fields[i].name == a[j])
+                {
+                    used = used + 1;
+                    break;
+                }
+     
+        return (used * 100) / fieldLen;
+    }   
+    return -1.0;
+};
+
+CheckForSpaghetti := function(node: Method)
+{
+    if(IsSetOrGet(node.name) || IsConstructor(node.name))
+        return;
+        
+    if(lloc(node) > MIN_LINES_OF_CODE && HasParameters(node) && !hasParents)
+        {
+                u := UsesFields(node);
+                SPAG[project.name][classFile.name][node.name][string(u)] << 1;
+        }
+
+};
+
+visit(input, visitor 
+{
+    before node: Project ->
+    {
+        #if(!(match("KKPS/exceedvote", project.name)))
+        #        stop;  
+    }
+	before node: CodeRepository -> {
+		
+		if(!IsRelevantProject(node))
+		    stop;
+		snapshot := getsnapshot(node);
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	before node: Declaration ->
+	{
+	    if(node.kind == TypeKind.CLASS)
+	    {
+	        classFile = node;
+	        hasParents = false;
+	        if(len(node.parents) > 0)
+	            hasParents = true;
+	        foreach (i: int; def(node.methods[i]))
+			 visit(node.methods[i]);
+	    }
+		stop;
+	}
+	before node: Method -> 
+	{
+	    CheckForSpaghetti(node);
+	    stop;
+	}
+});

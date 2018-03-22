@@ -1,0 +1,66 @@
+#Army Swiss Knife
+project: Project = input;
+
+SwissArmy: output sum[string]  of int;
+cf: ChangedFile; #name of actual file
+INTERFACES_ALLOWED := 5;
+
+#check if project is relevant
+IsRelevantProject := function(node: CodeRepository): bool
+{
+    isRelevant := false;
+	exists (i: int; match(`java`, lowercase(project.programming_languages[i])))
+		isRelevant = true;
+		
+	if(isRelevant)
+	{
+	    snap := getsnapshot(node);
+        exists (i: int; match(`androidmanifest.xml$`, lowercase(snap[i].name)))
+            isRelevant = false;
+	}
+	return isRelevant;
+};
+
+CheckForSwissArmyKnife := function (node: ChangedFile)
+{
+    
+    used := 0; #how many interfaces are used?
+    visit(node, visitor
+    {
+        before node: Declaration ->
+	{
+        if(node.kind == TypeKind.INTERFACE)
+        {
+            used++;
+        }
+         stop; 
+	}
+    });
+    if(used > INTERFACES_ALLOWED) #if more used than allowed, add to output
+        SwissArmy[project.name+cf.name] << used;
+};
+
+
+visit(input, visitor 
+{
+    before node: Project ->
+    {
+        #if(!(match("KKPS/exceedvote", project.name)))
+        #        stop;  
+    }
+	before node: CodeRepository -> {
+		
+		if(!IsRelevantProject(node))
+		    stop;
+		snapshot := getsnapshot(node, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	before node: ChangedFile ->
+	{
+	    cf = node;
+	    CheckForSwissArmyKnife(node);
+	    stop;
+	}
+});
